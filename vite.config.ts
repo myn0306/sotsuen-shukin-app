@@ -5,6 +5,7 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    base: '/sotsuen-shukin-app/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
