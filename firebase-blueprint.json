@@ -1,0 +1,34 @@
+{
+  "entities": {
+    "WarikanData": {
+      "title": "WarikanData",
+      "description": "Shared kindergarten gift money splitting data including teachers, expense items, parent participants, and payment status",
+      "type": "object",
+      "properties": {
+        "teachers": {
+          "type": "array",
+          "description": "List of teachers and their associated expense items"
+        },
+        "participants": {
+          "type": "array",
+          "description": "List of parent participants, joined teacher IDs, and collection status"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of the last modification"
+        }
+      },
+      "required": ["teachers", "participants"]
+    }
+  },
+  "firestore": {
+    "/collections/main": {
+      "schema": "WarikanData",
+      "description": "Shared application data document for all officers and parents"
+    },
+    "/warikan/main": {
+      "schema": "WarikanData",
+      "description": "Legacy/alternative collection path"
+    }
+  }
+}

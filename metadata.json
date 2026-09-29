@@ -1,0 +1,8 @@
+{
+  "name": "保育園の卒園記念 集金計算アプリ",
+  "description": "保育園の卒園記念イベントで先生への贈り物代を保護者で正しく割り勘・集金計算できるアプリ。備品登録、参加者割り当て、切り上げ予備費算出、印刷・PDF保存に対応。",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
