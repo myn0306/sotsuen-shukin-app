@@ -29,12 +29,8 @@ export const FIRESTORE_DOC_ID = 'main';
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-// Firebaseプロジェクト（sotsuen-shukin）の標準 "(default)" データベースに接続
-const customDbId = import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID;
-export const db: Firestore =
-  customDbId && customDbId !== '(default)'
-    ? getFirestore(app, customDbId)
-    : getFirestore(app);
+// Firebaseプロジェクト「sotsuen-shukin」の標準 "(default)" データベースに接続
+export const db: Firestore = getFirestore(app);
 
 // エラーハンドリング用の列挙型とインターフェース
 export enum OperationType {

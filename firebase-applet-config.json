@@ -1,12 +1,10 @@
 {
-  "projectId": "gen-lang-client-0667637397",
-  "appId": "1:992749690504:web:3aac6c194e7827e9bb493d",
-  "apiKey": "AIzaSyBtnPyEPU8MBB8G9dhHZzjTgv7_pIBH4OY",
-  "authDomain": "gen-lang-client-0667637397.firebaseapp.com",
+  "projectId": "sotsuen-shukin",
+  "appId": "1:205368527342:web:97407552e069890fefa6ff",
+  "apiKey": "AIzaSyBLotuDF0fTMQn6-OwuHFxzty3ImE2edTo",
+  "authDomain": "sotsuen-shukin.firebaseapp.com",
   "firestoreDatabaseId": "(default)",
-  "storageBucket": "gen-lang-client-0667637397.firebasestorage.app",
-  "messagingSenderId": "992749690504",
-  "measurementId": "",
-  "oAuthClientId": "992749690504-e78rv2q8kdsgtnod8oerlnhd86v0nq8g.apps.googleusercontent.com",
-  "recaptchaSiteKey": ""
+  "storageBucket": "sotsuen-shukin.firebasestorage.app",
+  "messagingSenderId": "205368527342",
+  "measurementId": "G-9D0X0XP8GW"
 }
