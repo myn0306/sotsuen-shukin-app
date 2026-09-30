@@ -21,6 +21,13 @@ interface WarikanDocumentData {
 
 const DOC_PATH = `${FIRESTORE_COLLECTION}/${FIRESTORE_DOC_ID}`;
 
+// 入力が止まってからFirestoreへ書き込むまでの待機時間（0.8秒）
+const DEBOUNCE_DELAY_MS = 800;
+
+function serializeData(teachers: Teacher[], participants: Participant[]): string {
+  return JSON.stringify({ teachers, participants });
+}
+
 export function useWarikanSync() {
   const [teachers, setTeachers] = useState<Teacher[]>(INITIAL_TEACHERS);
   const [participants, setParticipants] = useState<Participant[]>(INITIAL_PARTICIPANTS);
@@ -28,14 +35,22 @@ export function useWarikanSync() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isInitialLoaded, setIsInitialLoaded] = useState<boolean>(false);
 
-  // 最後の書き込み中フラグ（Firestoreからの自分自身の変更のバウンスバック防止）
-  const isWritingRef = useRef<boolean>(false);
+  // 最新のローカル状態を保持するRef（クロージャ内の古い値参照を防止）
+  const latestTeachersRef = useRef<Teacher[]>(INITIAL_TEACHERS);
+  const latestParticipantsRef = useRef<Participant[]>(INITIAL_PARTICIPANTS);
+
+  // デバウンス用のタイマーRef
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 最後にFirestoreに正常保存した（または初期化した）データのシグネチャ
+  const lastWrittenDataRef = useRef<string>('');
+
+  // Firestoreへの書き込み中フラグ（通信中）
+  const isWritingRef = useRef<boolean>(false);
 
   // オンライン/オフラインの検知
   useEffect(() => {
     const handleOnline = () => {
-      setSyncStatus('syncing');
       testFirestoreConnection().then((ok) => {
         if (ok) setSyncStatus('saved');
         else setSyncStatus('offline');
@@ -55,6 +70,81 @@ export function useWarikanSync() {
     };
   }, []);
 
+  // Firestore への保存関数（実際に通信を行う）
+  const saveToFirestore = useCallback(
+    async (nextTeachers: Teacher[], nextParticipants: Participant[]) => {
+      const signature = serializeData(nextTeachers, nextParticipants);
+      if (signature === lastWrittenDataRef.current) {
+        // 直前に保存したデータと完全に同じであれば不要な通信をスキップ
+        return;
+      }
+
+      if (!navigator.onLine) {
+        setSyncStatus('offline');
+        return;
+      }
+
+      // 【要件4】実際にFirestoreへの書き込みが行われるタイミングでステータスを「同期中」に切り替え
+      setSyncStatus('syncing');
+      isWritingRef.current = true;
+
+      try {
+        const docRef = doc(db, FIRESTORE_COLLECTION, FIRESTORE_DOC_ID);
+        await setDoc(docRef, {
+          teachers: nextTeachers,
+          participants: nextParticipants,
+          updatedAt: new Date().toISOString(),
+        });
+
+        lastWrittenDataRef.current = signature;
+        setSyncStatus('saved');
+        setErrorMessage(null);
+      } catch (err) {
+        console.error('Save to firestore error:', err);
+        if (!navigator.onLine || (err instanceof Error && err.message.includes('offline'))) {
+          setSyncStatus('offline');
+        } else {
+          setSyncStatus('error');
+          setErrorMessage('保存に失敗しました');
+        }
+        handleFirestoreError(err, OperationType.WRITE, DOC_PATH);
+      } finally {
+        // ローカルイベントループが落ち着くまで少し待機してから解除
+        setTimeout(() => {
+          isWritingRef.current = false;
+        }, 300);
+      }
+    },
+    []
+  );
+
+  // 未保存のデバウンスキューを即時フラッシュ
+  const flushPendingSave = useCallback(async () => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+      await saveToFirestore(latestTeachersRef.current, latestParticipantsRef.current);
+    }
+  }, [saveToFirestore]);
+
+  // ページ離脱・リロード時の安全なフラッシュ
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+        saveToFirestore(latestTeachersRef.current, latestParticipantsRef.current);
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [saveToFirestore]);
+
   // Firestore のリアルタイム購読（onSnapshot）
   useEffect(() => {
     const docRef = doc(db, FIRESTORE_COLLECTION, FIRESTORE_DOC_ID);
@@ -69,11 +159,15 @@ export function useWarikanSync() {
           // ドキュメントがまだ無ければ初期データを作成
           try {
             setSyncStatus('syncing');
+            const initialSignature = serializeData(INITIAL_TEACHERS, INITIAL_PARTICIPANTS);
             await setDoc(docRef, {
               teachers: INITIAL_TEACHERS,
               participants: INITIAL_PARTICIPANTS,
               updatedAt: new Date().toISOString(),
             });
+            lastWrittenDataRef.current = initialSignature;
+            latestTeachersRef.current = INITIAL_TEACHERS;
+            latestParticipantsRef.current = INITIAL_PARTICIPANTS;
             setTeachers(INITIAL_TEACHERS);
             setParticipants(INITIAL_PARTICIPANTS);
             setSyncStatus('saved');
@@ -86,18 +180,51 @@ export function useWarikanSync() {
           return;
         }
 
-        const data = snapshot.data() as WarikanDocumentData;
-
-        // 書き込み中でない場合、もしくは他ユーザーからの更新の場合は反映
-        if (!isWritingRef.current) {
-          if (Array.isArray(data.teachers)) {
-            setTeachers(data.teachers);
-          }
-          if (Array.isArray(data.participants)) {
-            setParticipants(data.participants);
-          }
+        // 【要件5 最適化】
+        // 1. 自分自身のローカルキャッシュ先行書き込みイベント（pendingWrites）はスキップ
+        if (snapshot.metadata.hasPendingWrites) {
+          return;
         }
 
+        // 2. 自クライアントが現在書き込み通信中の場合はスキップ
+        if (isWritingRef.current) {
+          return;
+        }
+
+        // 3. ユーザーが現在デバウンス待機中でテキスト入力している最中の場合は上書きしない
+        if (saveTimeoutRef.current !== null) {
+          return;
+        }
+
+        const data = snapshot.data() as WarikanDocumentData;
+        const incomingTeachers = Array.isArray(data.teachers) ? data.teachers : [];
+        const incomingParticipants = Array.isArray(data.participants) ? data.participants : [];
+        const incomingSignature = serializeData(incomingTeachers, incomingParticipants);
+
+        // 4. 現在のローカル状態、または直前に保存した内容と完全一致している場合は再描画を完全にスキップ
+        const currentLocalSignature = serializeData(
+          latestTeachersRef.current,
+          latestParticipantsRef.current
+        );
+
+        if (
+          incomingSignature === currentLocalSignature ||
+          incomingSignature === lastWrittenDataRef.current
+        ) {
+          // 内容が変わっていないため、setTeachers / setParticipants を呼ばず不要な再描画を防止
+          setIsInitialLoaded(true);
+          setSyncStatus('saved');
+          setErrorMessage(null);
+          return;
+        }
+
+        // 5. 他ユーザーまたは他端末からの新規更新のみ反映
+        latestTeachersRef.current = incomingTeachers;
+        latestParticipantsRef.current = incomingParticipants;
+        lastWrittenDataRef.current = incomingSignature;
+
+        setTeachers(incomingTeachers);
+        setParticipants(incomingParticipants);
         setIsInitialLoaded(true);
         setSyncStatus('saved');
         setErrorMessage(null);
@@ -119,97 +246,77 @@ export function useWarikanSync() {
     };
   }, []);
 
-  // Firestore への保存関数
-  const saveToFirestore = useCallback(
-    async (nextTeachers: Teacher[], nextParticipants: Participant[]) => {
-      if (!navigator.onLine) {
-        setSyncStatus('offline');
-      } else {
-        setSyncStatus('syncing');
-      }
-
-      isWritingRef.current = true;
-      try {
-        const docRef = doc(db, FIRESTORE_COLLECTION, FIRESTORE_DOC_ID);
-        await setDoc(docRef, {
-          teachers: nextTeachers,
-          participants: nextParticipants,
-          updatedAt: new Date().toISOString(),
-        });
-
-        setSyncStatus('saved');
-        setErrorMessage(null);
-      } catch (err) {
-        console.error('Save to firestore error:', err);
-        if (!navigator.onLine || (err instanceof Error && err.message.includes('offline'))) {
-          setSyncStatus('offline');
-        } else {
-          setSyncStatus('error');
-          setErrorMessage('保存に失敗しました');
-        }
-        handleFirestoreError(err, OperationType.WRITE, DOC_PATH);
-      } finally {
-        setTimeout(() => {
-          isWritingRef.current = false;
-        }, 150);
-      }
-    },
-    []
-  );
-
   // 先生・備品データの更新（即時 or デバウンス）
   const updateTeachers = useCallback(
     (newTeachers: Teacher[] | ((prev: Teacher[]) => Teacher[]), immediate = false) => {
-      setTeachers((prev) => {
-        const resolvedTeachers = typeof newTeachers === 'function' ? newTeachers(prev) : newTeachers;
+      const resolvedTeachers =
+        typeof newTeachers === 'function' ? newTeachers(latestTeachersRef.current) : newTeachers;
 
-        if (saveTimeoutRef.current) {
-          clearTimeout(saveTimeoutRef.current);
-        }
+      // 【要件1】まずローカルの画面表示（React State）を即座に更新（遅延ゼロで軽快に入力）
+      latestTeachersRef.current = resolvedTeachers;
+      setTeachers(resolvedTeachers);
 
-        if (immediate) {
-          saveToFirestore(resolvedTeachers, participants);
-        } else {
-          setSyncStatus('syncing');
-          saveTimeoutRef.current = setTimeout(() => {
-            saveToFirestore(resolvedTeachers, participants);
-          }, 350);
-        }
+      // 既存のデバウンスタイマーをクリア
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
 
-        return resolvedTeachers;
-      });
+      if (immediate) {
+        // 【要件3】ワンタップ操作等は即座に反映・保存
+        saveToFirestore(resolvedTeachers, latestParticipantsRef.current);
+      } else {
+        // 【要件2】0.8秒（0.6〜1秒）入力が止まったタイミングで1回だけ書き込み
+        // 【要件4】タイマー待機中は syncStatus を変更せず、書き込み開始時に「同期中」へ切り替え
+        saveTimeoutRef.current = setTimeout(() => {
+          saveTimeoutRef.current = null;
+          saveToFirestore(latestTeachersRef.current, latestParticipantsRef.current);
+        }, DEBOUNCE_DELAY_MS);
+      }
     },
-    [participants, saveToFirestore]
+    [saveToFirestore]
   );
 
   // 保護者データの更新（即時 or デバウンス）
   const updateParticipants = useCallback(
     (newParticipants: Participant[] | ((prev: Participant[]) => Participant[]), immediate = true) => {
-      setParticipants((prev) => {
-        const resolvedParticipants =
-          typeof newParticipants === 'function' ? newParticipants(prev) : newParticipants;
+      const resolvedParticipants =
+        typeof newParticipants === 'function'
+          ? newParticipants(latestParticipantsRef.current)
+          : newParticipants;
 
-        if (saveTimeoutRef.current) {
-          clearTimeout(saveTimeoutRef.current);
-        }
+      // 【要件1】まずローカルの画面表示（React State）を即座に更新
+      latestParticipantsRef.current = resolvedParticipants;
+      setParticipants(resolvedParticipants);
 
-        if (immediate) {
-          saveToFirestore(teachers, resolvedParticipants);
-        } else {
-          setSyncStatus('syncing');
-          saveTimeoutRef.current = setTimeout(() => {
-            saveToFirestore(teachers, resolvedParticipants);
-          }, 350);
-        }
+      // 既存のデバウンスタイマーをクリア
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
 
-        return resolvedParticipants;
-      });
+      if (immediate) {
+        // 【要件3】ワンタップ操作等は即座に反映・保存
+        saveToFirestore(latestTeachersRef.current, resolvedParticipants);
+      } else {
+        // 【要件2】デバウンス書き込み
+        saveTimeoutRef.current = setTimeout(() => {
+          saveTimeoutRef.current = null;
+          saveToFirestore(latestTeachersRef.current, latestParticipantsRef.current);
+        }, DEBOUNCE_DELAY_MS);
+      }
     },
-    [teachers, saveToFirestore]
+    [saveToFirestore]
   );
 
   // サンプルデータへリセット
   const resetToSample = useCallback(async () => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    latestTeachersRef.current = INITIAL_TEACHERS;
+    latestParticipantsRef.current = INITIAL_PARTICIPANTS;
     setTeachers(INITIAL_TEACHERS);
     setParticipants(INITIAL_PARTICIPANTS);
     await saveToFirestore(INITIAL_TEACHERS, INITIAL_PARTICIPANTS);
@@ -217,6 +324,10 @@ export function useWarikanSync() {
 
   // 全てクリアして新規作成
   const clearAll = useCallback(async () => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
     const emptyTeacher: Teacher = {
       id: `t-${Date.now()}`,
       name: '担任の先生',
@@ -227,6 +338,8 @@ export function useWarikanSync() {
     const emptyTeachers = [emptyTeacher];
     const emptyParticipants: Participant[] = [];
 
+    latestTeachersRef.current = emptyTeachers;
+    latestParticipantsRef.current = emptyParticipants;
     setTeachers(emptyTeachers);
     setParticipants(emptyParticipants);
     await saveToFirestore(emptyTeachers, emptyParticipants);
@@ -242,5 +355,6 @@ export function useWarikanSync() {
     isInitialLoaded,
     resetToSample,
     clearAll,
+    flushPendingSave,
   };
 }

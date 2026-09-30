@@ -6,7 +6,7 @@ import { CuteFlower } from './CloudDecorations';
 
 interface Step1TeachersItemsProps {
   teachers: Teacher[];
-  onUpdateTeachers: (teachers: Teacher[]) => void;
+  onUpdateTeachers: (teachers: Teacher[], immediate?: boolean) => void;
   onNext: () => void;
 }
 
@@ -46,7 +46,7 @@ export const Step1TeachersItems: React.FC<Step1TeachersItemsProps> = ({
       items: [], // 先生追加直後は備品0件
     };
 
-    onUpdateTeachers([...teachers, newTeacher]);
+    onUpdateTeachers([...teachers, newTeacher], true);
     setNewTeacherName('');
   };
 
@@ -62,11 +62,11 @@ export const Step1TeachersItems: React.FC<Step1TeachersItemsProps> = ({
         `「${target?.name || 'この先生'}」と登録された備品を削除しますか？`
       )
     ) {
-      onUpdateTeachers(teachers.filter((t) => t.id !== teacherId));
+      onUpdateTeachers(teachers.filter((t) => t.id !== teacherId), true);
     }
   };
 
-  // 先生名を更新
+  // 先生名を更新（テキスト入力：デバウンス保存）
   const handleUpdateTeacherName = (
     teacherId: string,
     name: string,
@@ -75,11 +75,12 @@ export const Step1TeachersItems: React.FC<Step1TeachersItemsProps> = ({
     onUpdateTeachers(
       teachers.map((t) =>
         t.id === teacherId ? { ...t, name, role: role ?? t.role } : t
-      )
+      ),
+      false
     );
   };
 
-  // 備品を追加
+  // 備品を追加（即時保存）
   const handleAddItem = (
     teacherId: string,
     name: string = '新しい品目',
@@ -94,11 +95,12 @@ export const Step1TeachersItems: React.FC<Step1TeachersItemsProps> = ({
     onUpdateTeachers(
       teachers.map((t) =>
         t.id === teacherId ? { ...t, items: [...t.items, newItem] } : t
-      )
+      ),
+      true
     );
   };
 
-  // 備品を削除（確認ダイアログ付き）
+  // 備品を削除（即時保存）
   const handleDeleteItem = (teacherId: string, itemId: string) => {
     const targetTeacher = teachers.find((t) => t.id === teacherId);
     const targetItem = targetTeacher?.items.find((item) => item.id === itemId);
@@ -114,11 +116,12 @@ export const Step1TeachersItems: React.FC<Step1TeachersItemsProps> = ({
           ...t,
           items: t.items.filter((item) => item.id !== itemId),
         };
-      })
+      }),
+      true
     );
   };
 
-  // 備品の品名・金額を更新
+  // 備品の品名・金額を更新（連続入力：デバウンス保存）
   const handleUpdateItem = (
     teacherId: string,
     itemId: string,
@@ -139,11 +142,12 @@ export const Step1TeachersItems: React.FC<Step1TeachersItemsProps> = ({
             return { ...item, [field]: value };
           }),
         };
-      })
+      }),
+      false
     );
   };
 
-  // まとめ買いモードの切り替え（トグル）
+  // まとめ買いモードの切り替え（トグル：即時保存）
   const handleToggleBulk = (teacherId: string, itemId: string) => {
     onUpdateTeachers(
       teachers.map((t) => {
@@ -187,11 +191,12 @@ export const Step1TeachersItems: React.FC<Step1TeachersItemsProps> = ({
             }
           }),
         };
-      })
+      }),
+      true
     );
   };
 
-  // まとめ買い用の入力値（購入金額・入り数・使用数）を更新し、実費を再計算
+  // まとめ買い用の入力値（購入金額・入り数・使用数）を更新し、実費を再計算（連続入力：デバウンス保存）
   const handleUpdateBulkField = (
     teacherId: string,
     itemId: string,
@@ -235,7 +240,8 @@ export const Step1TeachersItems: React.FC<Step1TeachersItemsProps> = ({
             };
           }),
         };
-      })
+      }),
+      false
     );
   };
 

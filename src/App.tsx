@@ -26,10 +26,17 @@ export default function App() {
     errorMessage,
     resetToSample,
     clearAll,
+    flushPendingSave,
   } = useWarikanSync();
 
   const [currentStep, setCurrentStep] = useState<StepId>(1);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+  // ステップ移動時に保留中の入力があれば即時保存
+  const handleStepChange = (step: StepId) => {
+    flushPendingSave();
+    setCurrentStep(step);
+  };
 
   // 全体計算のメモ化
   const overallCalculation = useMemo(() => {
@@ -161,7 +168,7 @@ export default function App() {
         <div className="mb-6">
           <StepSugoroku
             currentStep={currentStep}
-            onSelectStep={(s) => setCurrentStep(s)}
+            onSelectStep={(s) => handleStepChange(s)}
           />
         </div>
 
@@ -171,7 +178,7 @@ export default function App() {
             <Step1TeachersItems
               teachers={teachers}
               onUpdateTeachers={updateTeachers}
-              onNext={() => setCurrentStep(2)}
+              onNext={() => handleStepChange(2)}
             />
           )}
 
@@ -180,17 +187,17 @@ export default function App() {
               teachers={teachers}
               participants={participants}
               onUpdateParticipants={updateParticipants}
-              onNext={() => setCurrentStep(3)}
-              onPrev={() => setCurrentStep(1)}
+              onNext={() => handleStepChange(3)}
+              onPrev={() => handleStepChange(1)}
             />
           )}
 
           {currentStep === 3 && (
             <Step3TeacherSummary
               calculation={overallCalculation}
-              onNext={() => setCurrentStep(4)}
-              onPrev={() => setCurrentStep(2)}
-              onGoToStep1={() => setCurrentStep(1)}
+              onNext={() => handleStepChange(4)}
+              onPrev={() => handleStepChange(2)}
+              onGoToStep1={() => handleStepChange(1)}
             />
           )}
 
@@ -199,8 +206,8 @@ export default function App() {
               calculation={overallCalculation}
               participants={participants}
               onUpdateParticipants={updateParticipants}
-              onPrev={() => setCurrentStep(3)}
-              onGoToStep2={() => setCurrentStep(2)}
+              onPrev={() => handleStepChange(3)}
+              onGoToStep2={() => handleStepChange(2)}
             />
           )}
         </div>

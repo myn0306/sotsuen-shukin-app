@@ -41,7 +41,7 @@ export const ROSTER_PRESET_NAMES = ROSTER_PRESETS.map((p) => p.registeredName);
 interface Step2ParticipantsProps {
   teachers: Teacher[];
   participants: Participant[];
-  onUpdateParticipants: (participants: Participant[]) => void;
+  onUpdateParticipants: (participants: Participant[], immediate?: boolean) => void;
   onNext: () => void;
   onPrev: () => void;
 }
@@ -53,7 +53,7 @@ export const Step2Participants: React.FC<Step2ParticipantsProps> = ({
   onNext,
   onPrev,
 }) => {
-  // クイック選択名簿からの追加 / 解除トグル
+  // クイック選択名簿からの追加 / 解除トグル（即時反映・保存）
   const handleToggleRosterPreset = (preset: RosterPreset) => {
     const existing = participants.find((p) => p.name.trim() === preset.registeredName.trim());
     if (existing) {
@@ -74,7 +74,7 @@ export const Step2Participants: React.FC<Step2ParticipantsProps> = ({
           return;
         }
       }
-      onUpdateParticipants(participants.filter((p) => p.id !== existing.id));
+      onUpdateParticipants(participants.filter((p) => p.id !== existing.id), true);
     } else {
       // まだリストにない場合：追加（全員参加状態で追加、名前は registeredName で登録）
       const newP: Participant = {
@@ -83,11 +83,11 @@ export const Step2Participants: React.FC<Step2ParticipantsProps> = ({
         teacherIds: teachers.map((t) => t.id),
         isPaid: false,
       };
-      onUpdateParticipants([...participants, newP]);
+      onUpdateParticipants([...participants, newP], true);
     }
   };
 
-  // 名簿20名を全員一括追加
+  // 名簿20名を全員一括追加（即時保存）
   const handleAddAllRosterPresets = () => {
     const existingNames = new Set(participants.map((p) => p.name.trim()));
     const missingNames = ROSTER_PRESET_NAMES.filter((name) => !existingNames.has(name));
@@ -100,10 +100,10 @@ export const Step2Participants: React.FC<Step2ParticipantsProps> = ({
       isPaid: false,
     }));
 
-    onUpdateParticipants([...participants, ...newItems]);
+    onUpdateParticipants([...participants, ...newItems], true);
   };
 
-  // 名簿メンバーを一括解除
+  // 名簿メンバーを一括解除（即時保存）
   const handleRemoveAllRosterPresets = () => {
     const rosterSet = new Set(ROSTER_PRESET_NAMES);
     const targetParticipants = participants.filter((p) => rosterSet.has(p.name.trim()));
@@ -116,20 +116,20 @@ export const Step2Participants: React.FC<Step2ParticipantsProps> = ({
     ) {
       return;
     }
-    onUpdateParticipants(participants.filter((p) => !rosterSet.has(p.name.trim())));
+    onUpdateParticipants(participants.filter((p) => !rosterSet.has(p.name.trim())), true);
   };
 
-  // 保護者を削除（確認ダイアログ付き）
+  // 保護者を削除（即時保存）
   const handleDeleteParticipant = (id: string) => {
     const target = participants.find((p) => p.id === id);
     const targetName = target?.name ? `「${target.name}」` : 'この保護者';
     if (!window.confirm(`${targetName}を削除しますか？`)) {
       return;
     }
-    onUpdateParticipants(participants.filter((p) => p.id !== id));
+    onUpdateParticipants(participants.filter((p) => p.id !== id), true);
   };
 
-  // 先生の参加トグル
+  // 先生の参加トグル（チェックボックス：即時保存）
   const handleToggleTeacher = (participantId: string, teacherId: string) => {
     onUpdateParticipants(
       participants.map((p) => {
@@ -142,11 +142,12 @@ export const Step2Participants: React.FC<Step2ParticipantsProps> = ({
           ...p,
           teacherIds: newTeacherIds,
         };
-      })
+      }),
+      true
     );
   };
 
-  // 全員を特定の先生に一括選択/解除
+  // 全員を特定の先生に一括選択/解除（即時保存）
   const handleToggleAllForTeacher = (teacherId: string, selectAll: boolean) => {
     onUpdateParticipants(
       participants.map((p) => {
@@ -157,7 +158,8 @@ export const Step2Participants: React.FC<Step2ParticipantsProps> = ({
           return { ...p, teacherIds: p.teacherIds.filter((id) => id !== teacherId) };
         }
         return p;
-      })
+      }),
+      true
     );
   };
 

@@ -27,7 +27,7 @@ export const getNoticeSurname = (registeredName: string): string => {
 interface Step4ParentResultsProps {
   calculation: OverallCalculation;
   participants: Participant[];
-  onUpdateParticipants: (participants: Participant[]) => void;
+  onUpdateParticipants: (participants: Participant[], immediate?: boolean) => void;
   onPrev: () => void;
   onGoToStep2?: () => void;
 }
@@ -102,12 +102,13 @@ export const Step4ParentResults: React.FC<Step4ParentResultsProps> = ({
     window.print();
   };
 
-  // 集金ステータストグル
+  // 集金ステータストグル（ワンタップチェック：即時反映・保存）
   const handleTogglePaid = (participantId: string) => {
     onUpdateParticipants(
       participants.map((p) =>
         p.id === participantId ? { ...p, isPaid: !p.isPaid } : p
-      )
+      ),
+      true
     );
   };
 
