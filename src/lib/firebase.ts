@@ -27,16 +27,13 @@ export const firebaseConfig = {
 export const FIRESTORE_COLLECTION = 'collections';
 export const FIRESTORE_DOC_ID = 'main';
 
-const databaseId =
-  import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID ||
-  appletConfig.firestoreDatabaseId ||
-  '(default)';
-
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
+// Firebaseプロジェクト（sotsuen-shukin）の標準 "(default)" データベースに接続
+const customDbId = import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID;
 export const db: Firestore =
-  databaseId && databaseId !== '(default)'
-    ? getFirestore(app, databaseId)
+  customDbId && customDbId !== '(default)'
+    ? getFirestore(app, customDbId)
     : getFirestore(app);
 
 // エラーハンドリング用の列挙型とインターフェース
